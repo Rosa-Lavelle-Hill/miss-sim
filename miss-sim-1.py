@@ -1,16 +1,27 @@
+# miss-sim 1: Both X and y have missing values, and are used to impute each other
+
 import numpy as np
 import pandas as pd
 from sklearn import metrics
 from sklearn.model_selection import train_test_split, cross_validate, GridSearchCV
 from sklearn.experimental import enable_iterative_imputer
+from sklearn.linear_model import Lasso
 from sklearn.impute import IterativeImputer
 from sklearn.linear_model import ElasticNet
-from Params.Grids import enet_param_grid
+from sklearn.ensemble import RandomForestRegressor
+
+from Functions.Plotting import plot_box
+from Params.Grids import enet_param_grid, lasso_param_grid, rf_param_grid
+
+anal = 1
+
+# choose prediction model (enet, lasso, rf):
+pred_model = "enet"
 
 # Define the parameters
+n_repeats = 100
 K = 30
 iv_cor = 0.3
-n_repeats = 1000
 mean = 0
 sd = 1
 test_size = 0.5
@@ -18,6 +29,7 @@ max_iter_imp = 10
 cv = 5
 scoring = "r2"
 decimal_places = 2
+fixed_seed = 93
 
 # Params to loop through:
 K_list = [K]
@@ -35,6 +47,8 @@ for K in K_list:
                 np.random.seed(seed)
 
                 nomiss_perc = 1-miss_perc
+
+                # ----------- Simulate and Impute -----------
 
                 # Define the mean and standard deviation for each variable
                 means = [mean] * K
@@ -66,7 +80,7 @@ for K in K_list:
 
                 # Check correlations (ignoring NAs)
                 if iter == 1:
-                    save_path = "Outputs/Descriptives/"
+                    save_path = "Outputs/miss-sim-{}/Descriptives/".format(anal)
                     data_cor_matrix = pd.DataFrame(X_and_y_miss.corr())
                     data_cor_matrix.to_csv(save_path + "X_and_y_cor_ignoring_NAs_nreps{}.csv".format(n_repeats))
 
@@ -77,7 +91,7 @@ for K in K_list:
                 X_and_y_imp = imp_mean.fit_transform(X_and_y_miss)
                 X_and_y_imp = pd.DataFrame(X_and_y_imp, columns=X_and_y_miss.columns)
 
-                # ----------- Train Elastic Net -----------
+                # ----------- Train Model -----------
 
                 # Redefine X and y from X_and_y
                 y = X_and_y_imp['y']
@@ -86,12 +100,23 @@ for K in K_list:
                 # Split train and test (same random seed so constant stable comparison)
                 X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=seed, test_size=test_size, shuffle=True)
 
-                # Define models
-                enet = ElasticNet()
+                # Define model
+                if pred_model == "enet":
+                    model = ElasticNet(random_state=fixed_seed)
+                    param_grid = enet_param_grid
+                elif pred_model == "lasso":
+                    model = Lasso(alpha=1, max_iter=500, random_state=fixed_seed)
+                    param_grid = lasso_param_grid
+                elif pred_model == "rf":
+                    model = RandomForestRegressor(random_state=fixed_seed)
+                    param_grid = rf_param_grid
+                else:
+                    print("Error: please define pred_model param as one of 'enet', 'lasso', or 'rf'")
+                    breakpoint()
 
                 # CV on train data to tune hyper-parameters
-                grid_search = GridSearchCV(estimator=enet,
-                                                       param_grid=enet_param_grid,
+                grid_search = GridSearchCV(estimator=model,
+                                                       param_grid=param_grid,
                                                        cv=cv,
                                                        scoring=scoring,
                                                        refit=True,
@@ -99,12 +124,14 @@ for K in K_list:
                                                        n_jobs=2)
                 grid_search.fit(X_train, y_train)
                 best_params = grid_search.best_params_
-                enet.set_params(**best_params)
-                enet.fit(X_train, y_train)
+                model.set_params(**best_params)
+                model.fit(X_train, y_train)
                 cv_r2 = grid_search.best_score_
 
+                # ----------- Predict Test Data -----------
+
                 # Predict y test
-                y_pred = enet.predict(X_test)
+                y_pred = model.predict(X_test)
                 test_r2 = round(metrics.r2_score(y_test, y_pred), decimal_places)
                 print(test_r2)
 
@@ -119,6 +146,14 @@ for K in K_list:
                 iter = iter +1
 
 results_df = pd.DataFrame.from_dict(results_dict).T
-results_df.to_csv("Results/results_nreps{}.csv".format(n_repeats))
+results_df.to_csv("Results/miss-sim-{}/{}/results_nreps{}.csv".format(anal, pred_model, n_repeats))
+
+# Plot results
+
+plot_box(df=results_df, x='miss_perc', y='test_r2', group='n_samples',
+         save_path="Results/miss-sim-{}/{}/Plots/".format(anal, pred_model), zero_line=True, fontsize=11,
+         save_name="results_nreps{}".format(n_repeats),
+         xlab="Missing Data Proportion", ylab="Prediction R squared (Test data)",
+         title="Analysis {}, model= {}, K=30, n iter={}".format(anal, pred_model, n_repeats), leg_title="N samples")
 
 print('done')
