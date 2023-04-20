@@ -10,7 +10,7 @@ from Params.Grids import enet_param_grid
 # Define the parameters
 K = 30
 iv_cor = 0.3
-n_repeats = 100
+n_repeats = 1000
 mean = 0
 sd = 1
 test_size = 0.5
