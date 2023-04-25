@@ -15,10 +15,10 @@ from Params.Grids import enet_param_grid, lasso_param_grid, rf_param_grid
 anal = 2
 
 # choose prediction model (enet, lasso, rf):
-pred_model = "enet"
+pred_model = "lasso"
 
 # Define the parameters
-n_repeats = 100
+n_repeats = 10
 K = 30
 iv_cor = 0.3
 mean = 0
@@ -33,7 +33,7 @@ fixed_seed = 93
 # Params to loop through:
 K_list = [K]
 n_samples_list = [100, 300, 1000]
-miss_perc_list = [0.1, 0.3, 0.5]
+miss_perc_list = [0, 0.1, 0.3, 0.5]
 # ^this is miss percentage for each variable
 
 results_dict = {}
