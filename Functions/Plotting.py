@@ -3,7 +3,7 @@ import seaborn as sns
 
 def plot_box(df, x, y, group, save_path, save_name,
                   xlab, ylab, title, y_lim=None, legend_under=False,
-                  zero_line=False, leg_title="",
+                  zero_line=False, leg_title="", r2=0,
                   fontsize=12, palette="Paired", figsize=(12, 12)):
 
     sns.set_palette(palette)
@@ -16,6 +16,9 @@ def plot_box(df, x, y, group, save_path, save_name,
     plt.xlabel(xlab, fontsize=fontsize)
     plt.ylabel(ylab, fontsize=fontsize)
 
+    # todo: add mean fit baselines (coloured lines) in (0% missing) for r2=0,
+    #  otherwise for R2 param value
+
     if legend_under == True:
         legend_fontsize = fontsize - 4
         plt.legend(loc='lower left',
@@ -27,6 +30,8 @@ def plot_box(df, x, y, group, save_path, save_name,
 
     if zero_line == True:
         plt.axhline(y=0, color='grey', linestyle='--')
+
+    plt.axhline(y=r2, color='grey', linestyle='--')
 
     plt.tight_layout()
 

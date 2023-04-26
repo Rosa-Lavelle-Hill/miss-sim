@@ -1,25 +1,28 @@
 # miss-sim 3: Only X has missing values, only X used to impute X
-
+import datetime as dt
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from sklearn import metrics
 from sklearn.model_selection import train_test_split, cross_validate, GridSearchCV
 from sklearn.experimental import enable_iterative_imputer
-from sklearn.linear_model import Lasso, LinearRegression
+from sklearn.linear_model import Lasso
 from sklearn.impute import IterativeImputer
 from sklearn.linear_model import ElasticNet
 from sklearn.ensemble import RandomForestRegressor
 from Functions.Plotting import plot_box
+from Functions.Sims import add_noise, calc_best_r2, calc_r2
 from Params.Grids import enet_param_grid, lasso_param_grid, rf_param_grid
 
 anal = 3
+
+start = dt.datetime.now()
 
 # choose prediction model (enet, lasso, rf):
 pred_model = "lasso"
 
 # Define the parameters
-n_repeats = 10
+n_repeats = 100
 K = 30
 iv_cor = 0.3
 mean = 0
@@ -43,7 +46,7 @@ iter=1
 for K in K_list:
     for n_samples in n_samples_list:
         for miss_perc in miss_perc_list:
-            for r2 in R2_list:
+            for r2_param in R2_list:
                 for seed in range(0, n_repeats):
 
                     np.random.seed(seed)
@@ -66,60 +69,30 @@ for K in K_list:
                     missing_mask = np.random.choice([True, False], size=X.shape, p=[miss_perc, nomiss_perc])
                     X_missing = np.where(missing_mask, np.nan, X)
 
-                    if r2 == 0:
+                    if r2_param == 0:
 
                         # Separately generate y with 0% missing
                         y = np.random.normal(loc=mean, scale=sd, size=n_samples)
-                        ivdv_name = ""
+                        r2_name = ""
 
                     else:
-                        # # Generate coefficients such that the R squared between X features (when no missing data) and y == r2 param
-                        # y = np.random.normal(size=n_samples)
-                        # ols_model = sm.OLS(y, sm.add_constant(X)).fit()
-                        # b = ols_model.params
-                        # r_squared = ols_model.rsquared
-                        #
-                        # while r_squared > r2:
-                        #     y = np.random.normal(size=n_samples)
-                        #     ols_model = sm.OLS(y, sm.add_constant(X)).fit()
-                        #     b = ols_model.params
-                        #     r_squared = ols_model.rsquared
+                        # Predict y from X with fixed coefficients (b=1)
+                        y_pred = np.dot(X, np.ones((X.shape[1],)))
 
-                        # MORE EFFICIENT: Generate the coefficients such that the R squared between the X features and y is 0.1
-                        # We can use the formula: b = inv(X'X)X'y, where X'X is the covariance matrix of X,
-                        # and X'y is the cross-covariance matrix of X and y
-                        y = np.random.normal(size=n_samples)
-                        cov_Xy = np.cov(X.T, y)
-                        cov_XX = np.cov(X.T)
-                        b = np.linalg.inv(cov_XX).dot(cov_Xy[:-1, -1])
-                        r_squared = np.square(np.corrcoef(X.dot(b), y)[0, 1])
+                        # Add noise to y_pred so that X predicts y with a given r2
+                        y, iters_count = add_noise(y_pred, r2_param)
 
-                        count = 0
-                        while not (r2 + 0.01) > r_squared > (r2 - 0.01):
-                            y = np.random.normal(size=n_samples)
+                        # Calc R2 through origin (line data generated on) with no missings:
+                        r_squared = calc_r2(y, y_pred)
 
-                            b = np.linalg.inv(X_b.T.dot(X_b)).dot(X_b.T).dot(y)
+                        # Calc best R2 (best fitting line) with no missings:
+                        best_fit = calc_best_r2(X, y)
 
-                            residuals = y - X_b.dot(b)
-                            ss_res = np.sum(residuals ** 2)
-                            ss_tot = np.sum((y - np.mean(y)) ** 2)
-                            r_squared = 1 - (ss_res / ss_tot)
-
-                            count = count + 1
-
-                        # print("end calc r2: {}".format(round(r_squared, 5)))
-
-                        # Generate the output variable y
-                        # y = np.dot(X, b) + np.random.normal(scale=np.sqrt(1 - r_squared), size=n_samples)
-
-                        # check X->y relationship:
-                        lr = LinearRegression()
-                        lr.fit(X, y)
-                        fit = lr.score(X, y)
-                        print("r2 param = {}; actual r2 fit= {}; iters=".format(r2, round(fit, 5)), count)
-
-                    # todo: add all generic functions add to miss-sim1-2
-                    # todo: add mean fit baselines (coloured lines) in (0% missing)
+                        print("r2 param = {}; r2 fit through origin= {}; best r2 fit= {}; iters= {}".format(r2_param,
+                                                                                                           r_squared,
+                                                                                                           round(best_fit, 2),
+                                                                                                           iters_count))
+                        r2_name = "_r2{}".format(r2_param)
 
                     # Join X and y
                     X_col_names = []
@@ -136,7 +109,7 @@ for K in K_list:
                         save_path = "Outputs/miss-sim-{}/Descriptives/".format(anal)
                         data_cor_matrix = pd.DataFrame(X_and_y_miss.corr())
                         data_cor_matrix.to_csv(save_path + "X_and_y_cor_ignoring_NAs_nreps{}{}.csv".format(n_repeats,
-                                                                                                           ivdv_name))
+                                                                                                           r2_name))
 
                     # Define imputer (default = BayesianRidge())
                     imp_mean = IterativeImputer(random_state=seed, max_iter=max_iter_imp, imputation_order='ascending')
@@ -196,7 +169,7 @@ for K in K_list:
                               "n_samples": n_samples,
                               "cv_r2": cv_r2,
                               "test_r2": test_r2,
-                              "iv_dv_cor": r2,
+                              "r2_param": r2_param,
                               "seed": seed}
 
                     results_dict[iter] = dict
@@ -205,12 +178,14 @@ for K in K_list:
 results_df = pd.DataFrame.from_dict(results_dict).T
 results_df.to_csv("Results/miss-sim-{}/{}/results_nreps{}.csv".format(anal, pred_model, n_repeats))
 
-# Plot results (one for each iv->dv cor:)
+# Plot results (all R2 params together:)
 
 plot_box(df=results_df, x='miss_perc', y='test_r2', group='n_samples',
          save_path="Results/miss-sim-{}/{}/Plots/".format(anal, pred_model), zero_line=True, fontsize=11,
-         save_name="results_nreps{}_AllIvDvCors".format(n_repeats),
+         save_name="results_nreps{}_allR2".format(n_repeats),
          xlab="Missing Data Proportion", ylab="Prediction R squared (Test data)",
          title="Analysis {}, model= {}, K=30, n iter={}".format(anal, pred_model, n_repeats), leg_title="N samples")
 
-print('done')
+end_time = dt.datetime.now()
+run_time = end_time - start
+print('done! run time: {}'.format(run_time))
